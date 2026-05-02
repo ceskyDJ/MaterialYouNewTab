@@ -209,6 +209,6 @@ const en = {
     "deleteBookmark": "Are you sure you want to delete the bookmark \"{title}\"?",  // Do not translate {title}
     "UnsupportedBrowser": "Bookmarks are not supported in your browser.",
     "resetShortcutsPrompt": "All saved shortcuts will be deleted and reset to default. Do you want to continue?",
-    "iconFileTooLargeMessage": "Selected file is too large: {size}. Please use a file smaller than 100 KB.",
+    "iconFileTooLargeMessage": "Selected file is too large: {size} KB. Please use a file smaller than 100 KB.",
     "iconStorageQuotaMessage": "Icon couldn’t be saved because the storage limit has been reached. Remove some custom icons or use a smaller image."
 };

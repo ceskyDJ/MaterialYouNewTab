@@ -218,7 +218,7 @@ document.addEventListener("DOMContentLoaded", function () {
             if (selectedFile.size > maxIconBytes) {
                 const iconFileTooLargeMessage = translations[currentLanguage]?.iconFileTooLargeMessage || translations["en"].iconFileTooLargeMessage;
                 const fileSizeKB = (selectedFile.size / 1024).toFixed(1);
-                alertPrompt(iconFileTooLargeMessage.replace("{size}", `${fileSizeKB} KB`));
+                alertPrompt(iconFileTooLargeMessage.replace("{size}", `${fileSizeKB}`));
                 fileInput.value = "";
                 return;
             }
