@@ -1,6 +1,6 @@
 /*
- * Material You NewTab
- * Copyright (c) 2023-2025 XengShi
+ * Material You New Tab
+ * Copyright (c) 2024-2026 Prem, 2023-2025 XengShi
  * Licensed under the GNU General Public License v3.0 (GPL-3.0)
  */
 
@@ -8,11 +8,11 @@ document.addEventListener("DOMContentLoaded", function () {
     // Constants
     const MAX_SHORTCUTS = 50;
     const PLACEHOLDER = {
-        name: "New shortcut",
+        get name()      { return translations[currentLanguage]?.shortcutDefaultName || translations["en"].shortcutDefaultName; },
         url: "https://github.com/prem-k-r/MaterialYouNewTab",
-        inputName: "Shortcut Name",
-        inputUrl: "Shortcut URL",
-        inputIcon: "Custom Icon URL (optional)"
+        get inputName() { return translations[currentLanguage]?.shortcutInputName   || translations["en"].shortcutInputName; },
+        get inputUrl()  { return translations[currentLanguage]?.shortcutInputUrl    || translations["en"].shortcutInputUrl; },
+        get inputIcon() { return translations[currentLanguage]?.shortcutInputIcon   || translations["en"].shortcutInputIcon; },
     };
 
     // DOM Elements
@@ -213,22 +213,31 @@ document.addEventListener("DOMContentLoaded", function () {
         fileInput.addEventListener("change", async e => {
             const selectedFile = e.target.files?.[0];
             if (!selectedFile) return;
-
-            const maxIconBytes = 100 * 1024;
-            if (selectedFile.size > maxIconBytes) {
-                const iconFileTooLargeMessage = translations[currentLanguage]?.iconFileTooLargeMessage || translations["en"].iconFileTooLargeMessage;
-                const fileSizeKB = (selectedFile.size / 1024).toFixed(1);
-                alertPrompt(iconFileTooLargeMessage.replace("{size}", `${fileSizeKB}`));
+            if (!selectedFile.type.startsWith("image/")) {
+                const invalidFileTypeMessage = translations[currentLanguage]?.invalidFileTypeMessage || translations["en"]?.invalidFileTypeMessage;
+                alertPrompt(invalidFileTypeMessage);
                 fileInput.value = "";
                 return;
             }
 
-            const reader = new FileReader();
-            reader.onload = () => {
-                iconInput.value = reader.result;
+            const maxIconBytes = 100 * 1024;
+            if (selectedFile.size > maxIconBytes) {
+                const iconFileTooLargeMessage = translations[currentLanguage]?.iconFileTooLargeMessage || translations["en"].iconFileTooLargeMessage;
+                const fileSizeKB = localizeNumbers((selectedFile.size / 1024).toFixed(1), currentLanguage);
+                const maxSizeKB = localizeNumbers((maxIconBytes / 1024).toFixed(0), currentLanguage);
+
+                const message = iconFileTooLargeMessage
+                    .replace("{size}", fileSizeKB)
+                    .replace("{max}", maxSizeKB);
+                alertPrompt(message);
+                fileInput.value = "";
+                return;
+            }
+
+            function applyIcon(iconValue) {
+                iconInput.value = iconValue;
                 try {
                     saveShortcut(entry);
-                    // Render with the current icon value (may be empty if quota was exceeded)
                     renderShortcut(
                         entry.querySelector(".shortcutName").value,
                         entry.querySelector(".URL").value,
@@ -241,12 +250,35 @@ document.addEventListener("DOMContentLoaded", function () {
                 } finally {
                     fileInput.value = "";
                 }
-            };
-            reader.onerror = () => {
-                console.error("Failed to read selected file:", reader.error);
-                fileInput.value = "";
-            };
-            reader.readAsDataURL(selectedFile);
+            }
+
+            const isSvgFile = selectedFile.type === "image/svg+xml";
+
+            if (isSvgFile) {
+                const textReader = new FileReader();
+                textReader.onload = () => {
+                    const sanitized = sanitizeSvg(textReader.result);
+                    if (!sanitized) {
+                        alertPrompt(translations[currentLanguage]?.invalidSvgMessage || translations["en"]?.invalidSvgMessage);
+                        fileInput.value = "";
+                        return;
+                    }
+                    applyIcon(sanitized);
+                };
+                textReader.onerror = () => {
+                    console.error("Failed to read SVG file:", textReader.error);
+                    fileInput.value = "";
+                };
+                textReader.readAsText(selectedFile);
+            } else {
+                const reader = new FileReader();
+                reader.onload = () => applyIcon(reader.result);
+                reader.onerror = () => {
+                    console.error("Failed to read selected file:", reader.error);
+                    fileInput.value = "";
+                };
+                reader.readAsDataURL(selectedFile);
+            }
         });
 
         deleteBtn.addEventListener("click", () => deleteShortcut(entry));
@@ -314,6 +346,44 @@ document.addEventListener("DOMContentLoaded", function () {
             lowercaseUrl.startsWith("https://") ||
             lowercaseUrl.startsWith("http://")
         );
+    }
+
+    // Sanitizes raw SVG code, returns data URL or null if unsafe
+    function sanitizeSvg(raw) {
+        const trimmed = raw.trim();
+        const normalized = trimmed
+            .replace(/^<\?xml[\s\S]*?\?>\s*/i, "")
+            .replace(/^<!doctype[\s\S]*?>\s*/i, "")
+            .replace(/^<!--[\s\S]*?-->\s*/i, "");
+        if (!normalized.toLowerCase().startsWith("<svg")) return null;
+
+        const forbidden = [
+            /<script[\s>]/i,                // <script> tags
+            /\bon\w+\s*=/i,                 // event handlers: onload=, onclick=, onerror=, …
+            /<iframe[\s>]/i,                // iframes
+            /<foreignObject[\s>]/i,         // foreignObject (can embed HTML)
+            /javascript\s*:/i,              // javascript: URIs
+            /data:(?!image\/[a-z]+;base64,)[^"'\s]*/i, // non-image data URIs
+        ];
+
+        for (const pattern of forbidden) {
+            if (pattern.test(normalized)) return null;
+        }
+
+        return "data:image/svg+xml;charset=utf-8," + encodeURIComponent(normalized);
+    }
+
+    // Normalizes icon input: converts raw SVG code → data URL, passes URLs through
+    function processIconInput(raw) {
+        const trimmed = raw.trim();
+        if (!trimmed) return { value: "", error: null };
+
+        if (/<svg[\s>]/i.test(trimmed)) {
+            const dataUrl = sanitizeSvg(trimmed);
+            return { value: dataUrl ?? "", error: null };
+        }
+
+        return { value: trimmed, error: null };
     }
 
     // Normalizes URLs to ensure they're valid
@@ -416,16 +486,41 @@ document.addEventListener("DOMContentLoaded", function () {
         setIconType(img, "default");
         img.addEventListener("error", () => {
             img.src = createLetterFallback().src;
-            setIconType(customIconImg, "letter");
+            setIconType(img, "letter");
         }, { once: true });
 
         return img;
+    }
+
+    // Validates the icon input field on blur
+    function validateIconInput(input) {
+        const raw = input.value.trim();
+        if (!raw) return;
+
+        if (/<svg[\s>]/i.test(raw)) {
+            const { value } = processIconInput(raw);
+            if (!value) {
+                alertPrompt(translations[currentLanguage]?.invalidSvgMessage || translations["en"]?.invalidSvgMessage);
+                input.value = "";
+            } else {
+                input.value = value;
+            }
+        } else {
+            if (!isValidCustomIconUrl(raw)) {
+                alertPrompt(translations[currentLanguage]?.invalidIconUrlMessage || translations["en"]?.invalidIconUrlMessage);
+                input.value = "";
+            }
+        }
     }
 
     // Attaches event listeners to shortcut input fields
     function attachInputListeners(inputs, entry) {
         inputs.forEach(input => {
             input.addEventListener("blur", () => {
+                if (input.classList.contains("iconURL")) {
+                    validateIconInput(input);
+                }
+
                 saveShortcut(entry);
                 renderShortcut(
                     entry.querySelector(".shortcutName").value,
@@ -439,7 +534,12 @@ document.addEventListener("DOMContentLoaded", function () {
 
         inputs[0].addEventListener("keydown", e => e.key === "Enter" && inputs[1].focus());
         inputs[1].addEventListener("keydown", e => e.key === "Enter" && inputs[2].focus());
-        inputs[2].addEventListener("keydown", e => e.key === "Enter" && e.target.blur());
+        inputs[2].addEventListener("keydown", e => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            e.stopPropagation();
+            e.target.blur();
+        });
     }
 
     // Drag and drop functionality for reordering shortcuts
